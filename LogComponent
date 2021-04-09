@@ -1,0 +1,255 @@
+package snake.format;
+
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
+import java.util.*;
+
+/**
+ * code from snake
+ * 将查询数据库返回的结果集（集合）以JSON或Table格式打印
+ *
+ * @param <T> 指定集合元素类型
+ */
+public class TableAndJson<T> {
+
+    private List<T> query;
+    private T type;
+    private char format;
+    private String json;
+    private String table;
+    private int size;
+    public static final char TABLE = 'T';
+    public static final char JSON = 'J';
+
+
+    public TableAndJson() {
+    }
+
+    public TableAndJson(Collection<T> c) {
+        setQuery(c);
+    }
+
+    /**
+     * 设置结果集
+     *
+     * @param c
+     * @return
+     */
+    public TableAndJson<T> setQuery(Collection<T> c) {
+        query = typeUnified(c);
+        size = query.size();
+        json = toJson();
+        table = toTable();
+        return this;
+    }
+
+
+    private static class TypeInconsistentException extends RuntimeException {
+        public TypeInconsistentException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * 验证元素类型是否统一
+     *
+     * @param c
+     * @return
+     */
+    private List<T> typeUnified(Collection<T> c) {
+        List<T> list = new ArrayList<>(c.size());
+        list.addAll(c);
+        Class c0, c1;
+        for (int i = 0; i < list.size(); i++) {
+            for (int j = i + 1; j < list.size(); j++) {
+                c0 = list.get(i).getClass();
+                c1 = list.get(j).getClass();
+                if (!c0.equals(c1)) {
+                    throw new TypeInconsistentException("Not a unified type instance: " +
+                            "It's on element " + (i + 1) + " " + c0.getTypeName() + " and element " + (j + 1) +
+                            " " + c1.getTypeName());
+                }
+            }
+        }
+        return list;
+    }
+
+    /**
+     * 获取结果集JSON格式数据
+     *
+     * @return
+     */
+    public String getJson() {
+        return json;
+    }
+
+    /**
+     * 获取结果集表格格式数据
+     *
+     * @return
+     */
+    public String getTable() {
+        return table;
+    }
+
+    /**
+     * 获取结果集记录条数
+     *
+     * @return
+     */
+    public int getSize() {
+        return size;
+    }
+
+    /**
+     * 设置打印格式，默认为JSON格式
+     *
+     * @param format
+     */
+    public void setFormat(char format) {
+        if (format != JSON && format != TABLE) {
+            throw new NumberFormatException("Incorrect print format: \"" + format + "\"");
+        }
+        this.format = format;
+    }
+
+    @Override
+    public String toString() {
+        return format == TABLE ? table : json;
+    }
+
+
+    /**
+     * 将传递集合转换为Json格式
+     *
+     * @return
+     */
+    protected String toJson() {
+        if (query.size() == 0 || query == null) {
+            return "[]";
+        }
+        StringBuffer s = new StringBuffer("[");
+        for (T t : query) {
+            Field[] fields = t.getClass().getDeclaredFields();
+            s.append("{");
+            for (Field field : fields) {
+                field.setAccessible(true);
+                try {
+                    s.append('"').append(field.getName()).append("\":\"").append(field.get(t)).append("\",");
+                } catch (IllegalAccessException e) {
+                    e.printStackTrace();
+                }
+            }
+            s.replace(s.length() - 1, s.length(), "").append("},");
+        }
+        return s.replace(s.length() - 1, s.length(), "").append(']').toString();
+    }
+
+    /**
+     * 将传递的集合转换为table格式
+     *
+     * @return
+     */
+    protected String toTable() {
+
+        //获取列名
+        Field[] fs = query.get(0).getClass().getDeclaredFields();
+        int len = fs.length;
+        String[] columns = new String[len];
+        for (int i = 0; i < len; i++) {
+            columns[i] = fs[i].getName();
+        }
+
+        //存储每列最大列宽
+        int[] maxLength = new int[len];
+        //以列名长度做初始值
+        for (int i = 0; i < len; i++) {
+            try {
+                //避免中文，使用实际字节数，即中文字应符占用两个字节位置
+                maxLength[i] = columns[i].getBytes("GBK").length;
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+            }
+        }
+        //存储每个列的数据
+        String[][] data = new String[len][size];
+        String s = null;
+        Field f;
+        int temp0 = 0, temp1;
+        for (int j = 0; j < size; j++) {
+            T t = query.get(j);
+            Field[] fields = t.getClass().getDeclaredFields();
+            for (int i = 0; i < len; i++) {
+                f = fields[i];
+                f.setAccessible(true);
+                try {
+                    s = f.get(t).toString();
+                } catch (IllegalAccessException e) {
+                    e.printStackTrace();
+                }
+                data[i][j] = s;
+                try {
+                    temp0 = s.getBytes("GBK").length;
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+                temp1 = maxLength[i];
+                maxLength[i] = temp0 > temp1 ? temp0 : temp1;
+            }
+        }
+
+
+        //绘制表格
+        //表头
+        StringBuffer head = new StringBuffer("+");
+        StringBuffer column = new StringBuffer("|");
+        String temp;
+        int tempLen = 0;
+        for (int i = 0; i < len; i++) {
+            temp = columns[i];
+            column.append(' ').append(temp);
+            for (int j = 0; j < maxLength[i]; j++) {
+                head.append('-');
+                column.append(' ');
+            }
+            head.append("--+");
+            try {
+                tempLen = column.toString().getBytes("GBK").length;
+                column.replace(tempLen - temp.getBytes("GBK").length, tempLen, "").append(" |");
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+            }
+
+        }
+        String line = head.append('\n').toString();
+        head.append(column.append('\n')).append(line);
+
+
+        //表格数据主体
+        int temp3 = 0;
+        StringBuffer body = new StringBuffer();
+        StringBuffer font = new StringBuffer(" ");
+        for (int i = 0; i < size; i++) {
+            body.append("|");
+            for (int j = 0; j < len; j++) {
+                for (int k = 0; k < maxLength[j]; k++) {
+                    font.append(' ');
+                }
+                temp = data[j][i];
+                try {
+                    temp3 = temp.getBytes("GBK").length;
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+                //暂时无法调整中文内容对齐
+                font.replace(1, temp3, temp);
+                body.append(font).append(" |");
+                font = new StringBuffer(" ");
+            }
+            body.append('\n');
+
+        }
+
+        return head.append(body) + line;
+    }
+}
